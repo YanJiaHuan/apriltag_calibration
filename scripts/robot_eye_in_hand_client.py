@@ -89,6 +89,22 @@ def write_csv_row(csv_path: str, header: list[str], row: list[Any]) -> None:
         writer.writerow(row)
 
 
+def is_reproj_error_ok(reproj_error: Any, max_reproj_error: float) -> bool:
+    """
+    Check whether reprojection error is within an acceptable threshold.
+
+    Args:
+        reproj_error (Any): Reprojection error value or None.
+        max_reproj_error (float): Maximum allowed reprojection error.
+
+    Returns:
+        bool: True if reprojection error is valid and within threshold.
+    """
+    if reproj_error is None or reproj_error == "":
+        return False
+    return float(reproj_error) <= float(max_reproj_error)
+
+
 def connect_robot(ip: str, port: int) -> Any:
     """
     Connect to the Realman robot using RM_API2.
@@ -156,6 +172,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--count", type=int, default=1)
     parser.add_argument("--interval-s", type=float, default=0.0)
     parser.add_argument("--manual", action="store_true")
+    parser.add_argument("--max-reproj-error", type=float, default=2.0)
     return parser.parse_args()
 
 
@@ -193,6 +210,8 @@ def main() -> int:
         "end_ry_rad",
         "end_rz_rad",
         "tag_found",
+        "quality_ok",
+        "max_reproj_error",
         "tag_id",
         "tag_family",
         "tag_size_mm",
@@ -233,6 +252,22 @@ def main() -> int:
                 await ws.send(json.dumps({"type": "capture", "request_id": req_id}))
                 resp = json.loads(await ws.recv())
 
+                if not resp.get("tag_found", False):
+                    print(f"[{now_iso()}] tag_not_found: {resp.get('error', '')}")
+                    continue
+
+                resp_quality_ok = resp.get("quality_ok", None)
+                max_reproj_error = float(resp.get("max_reproj_error", args.max_reproj_error))
+                if resp_quality_ok is None:
+                    resp_quality_ok = is_reproj_error_ok(resp.get("reproj_error", None), max_reproj_error)
+
+                if not resp_quality_ok:
+                    print(
+                        f"[{now_iso()}] tag_found_but_low_quality: "
+                        f"reproj_error={resp.get('reproj_error', None)}, max={max_reproj_error}"
+                    )
+                    continue
+
                 robot_time = now_iso()
                 robot_pose = get_robot_pose_mm(arm)
 
@@ -252,6 +287,8 @@ def main() -> int:
                     robot_pose[4],
                     robot_pose[5],
                     bool(resp.get("tag_found", False)),
+                    bool(resp_quality_ok),
+                    max_reproj_error,
                     resp.get("tag_id", ""),
                     resp.get("tag_family", ""),
                     resp.get("tag_size_mm", ""),

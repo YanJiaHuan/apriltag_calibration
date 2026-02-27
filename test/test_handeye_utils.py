@@ -50,6 +50,18 @@ class TestHandeyeUtils(unittest.TestCase):
         self.assertAlmostEqual(ry, 0.0, places=6)
         self.assertAlmostEqual(rz, math.pi / 2.0, places=6)
 
+    def test_reproj_error_ok(self):
+        """Reprojection error thresholding should behave as expected."""
+        self.assertTrue(remote_apriltag_server.is_reproj_error_ok(0.5, 1.0))
+        self.assertFalse(remote_apriltag_server.is_reproj_error_ok(2.0, 1.0))
+        self.assertFalse(remote_apriltag_server.is_reproj_error_ok(None, 1.0))
+
+    def test_reproj_error_ok_robot(self):
+        """Robot-side reprojection error check should behave as expected."""
+        self.assertTrue(robot_eye_in_hand_client.is_reproj_error_ok(0.5, 1.0))
+        self.assertFalse(robot_eye_in_hand_client.is_reproj_error_ok(2.0, 1.0))
+        self.assertFalse(robot_eye_in_hand_client.is_reproj_error_ok("", 1.0))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,7 +5,8 @@ Remote AprilTag capture server for eye-in-hand calibration.
 This module runs on the remote machine that hosts the RealSense D435.
 It captures a single RGB frame per request, detects the AprilTag with the
 third_party AprilTag library (Python binding), estimates tag pose in the
-OpenCV camera frame, saves the image, and appends a CSV record in /data.
+OpenCV camera frame, saves the image (only if tag found), and appends a CSV
+record in /data.
 
 Assumptions:
 - Tag family is tag36h11 and tag size is provided in mm via config/vision_config.json.
@@ -112,6 +113,22 @@ def rotation_matrix_to_euler_xyz(r: Any) -> tuple[float, float, float]:
         rz = math.atan2(r10, r00)
 
     return rx, ry, rz
+
+
+def is_reproj_error_ok(reproj_error: Optional[float], max_reproj_error: float) -> bool:
+    """
+    Check whether reprojection error is within an acceptable threshold.
+
+    Args:
+        reproj_error (Optional[float]): Reprojection error value or None.
+        max_reproj_error (float): Maximum allowed reprojection error.
+
+    Returns:
+        bool: True if reprojection error is valid and within threshold.
+    """
+    if reproj_error is None:
+        return False
+    return float(reproj_error) <= float(max_reproj_error)
 
 
 def write_csv_row(csv_path: str, header: list[str], row: list[Any]) -> None:
@@ -302,11 +319,31 @@ def handle_capture_request(context: Dict[str, Any]) -> Dict[str, Any]:
         context["intrinsics"],
     )
 
+    reproj_error = result.get("reproj_error", None)
+    quality_ok = bool(
+        result.get("tag_found", False)
+        and is_reproj_error_ok(reproj_error, context["max_reproj_error"])
+    )
+
     image_rel_path = ""
-    if "image" in result:
+    if result.get("tag_found", False) and "image" in result:
         image_name = f"tag_{context['tag_id']}_{timestamp.replace(':', '-')}.png"
         image_rel_path = os.path.join(context["image_dir"], image_name)
         save_image(result["image"], image_rel_path)
+
+    if not result.get("tag_found", False):
+        print(f"[{timestamp}] tag_not_found: {result.get('error', '')}")
+    elif not quality_ok:
+        print(
+            f"[{timestamp}] tag_found_but_low_quality: "
+            f"reproj_error={reproj_error}, max={context['max_reproj_error']}"
+        )
+    else:
+        print(
+            f"[{timestamp}] tag_found_ok: "
+            f"t_mm={result.get('t_mm')}, rpy_rad={result.get('rpy_rad')}, "
+            f"reproj_error={reproj_error}"
+        )
 
     header = [
         "timestamp_iso",
@@ -320,6 +357,8 @@ def handle_capture_request(context: Dict[str, Any]) -> Dict[str, Any]:
         "cx",
         "cy",
         "tag_found",
+        "quality_ok",
+        "max_reproj_error",
         "t_x_mm",
         "t_y_mm",
         "t_z_mm",
@@ -349,6 +388,8 @@ def handle_capture_request(context: Dict[str, Any]) -> Dict[str, Any]:
         context["intrinsics"]["cx"],
         context["intrinsics"]["cy"],
         bool(result.get("tag_found", False)),
+        quality_ok,
+        context["max_reproj_error"],
         t_mm[0],
         t_mm[1],
         t_mm[2],
@@ -359,12 +400,15 @@ def handle_capture_request(context: Dict[str, Any]) -> Dict[str, Any]:
         result.get("error", ""),
     ]
 
-    write_csv_row(context["csv_path"], header, row)
+    if result.get("tag_found", False) and quality_ok:
+        write_csv_row(context["csv_path"], header, row)
 
     response = {
         "type": "capture_result",
         "timestamp_iso": timestamp,
         "tag_found": bool(result.get("tag_found", False)),
+        "quality_ok": quality_ok,
+        "max_reproj_error": context["max_reproj_error"],
         "tag_id": context["tag_id"],
         "tag_family": context["tag_family"],
         "tag_size_mm": context["tag_size_mm"],
@@ -395,6 +439,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--websocket-config", default="config/websocket.json")
     parser.add_argument("--data-dir", default="data")
     parser.add_argument("--csv-name", default="remote_apriltag.csv")
+    parser.add_argument("--max-reproj-error", type=float, default=2.0)
     return parser.parse_args()
 
 
@@ -437,6 +482,7 @@ def main() -> int:
         "intrinsics": intrinsics,
         "csv_path": os.path.join(data_dir, args.csv_name),
         "image_dir": image_dir,
+        "max_reproj_error": float(args.max_reproj_error),
         "lock": asyncio.Lock(),
     }
 
