@@ -1,0 +1,6 @@
+[submodule "third_party/apriltag"]
+	path = third_party/apriltag
+	url = git@github.com:YanJiaHuan/apriltag.git
+[submodule "third_party/RM_API2"]
+	path = third_party/RM_API2
+	url = git@github.com:YanJiaHuan/RM_API2.git

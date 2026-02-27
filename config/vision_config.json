@@ -1,0 +1,11 @@
+{
+  "tag": {
+    "id": 0,
+    "size_mm": 120.5,
+    "family": "tag36h11"
+  },
+  "camera": {
+    "frame": "opencv",
+    "config_file": "realsense_D435.json"
+  }
+}

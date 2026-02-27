@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "mode": "client",
+  "server_host": "0.0.0.0",
+  "server_port": 8766,
+  "server_uri": "ws://192.168.0.29:8766",
+  "request_timeout_s": 3.0
+
+}

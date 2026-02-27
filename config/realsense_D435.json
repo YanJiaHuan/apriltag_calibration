@@ -1,0 +1,18 @@
+{
+  "quality": {
+    "width": 1280,
+    "height": 720,
+    "fps": 30
+  },
+  "rgb_sensor": {
+    "enable_auto_exposure": 0,
+    "enable_auto_white_balance": 0,
+    "exposure": 150,
+    "gain": 10,
+    "brightness": -5,
+    "contrast": 60,
+    "gamma": 50,
+    "saturation": 50,
+    "sharpness": 50
+  }
+}
