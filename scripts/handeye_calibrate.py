@@ -66,16 +66,16 @@ def read_csv_rows(path: str) -> Tuple[List[str], List[List[str]]]:
     return rows[0], rows[1:]
 
 
-def normalize_header(header: List[str], row_len: int) -> List[str]:
+def expand_header_if_needed(header: List[str], row_len: int) -> List[str]:
     """
-    Normalize header to handle legacy CSV formats with missing columns.
+    Expand header for rows that include quality columns.
 
     Args:
-        header (list[str]): Original header list.
+        header (list[str]): Base header list.
         row_len (int): Length of a data row.
 
     Returns:
-        list[str]: Normalized header list.
+        list[str]: Expanded header if needed, otherwise base header.
     """
     if "quality_ok" in header:
         return header
@@ -337,17 +337,17 @@ def load_samples(
     if not header:
         return [], [], [], [], ["empty_csv"]
 
-    normalized_header = normalize_header(header, len(rows[0]) if rows else len(header))
     valid_r_gripper2base: List[np.ndarray] = []
     valid_t_gripper2base: List[np.ndarray] = []
     valid_r_target2cam: List[np.ndarray] = []
     valid_t_target2cam: List[np.ndarray] = []
 
     for idx, row in enumerate(rows, start=2):
-        if len(row) != len(normalized_header):
+        row_header = expand_header_if_needed(header, len(row))
+        if len(row) != len(row_header):
             warnings.append(f"row_len_mismatch_line_{idx}")
             continue
-        data = dict(zip(normalized_header, row))
+        data = dict(zip(row_header, row))
 
         tag_found = str_to_bool(data.get("tag_found", False))
         quality_ok = data.get("quality_ok", "")
