@@ -48,6 +48,28 @@ class TestHandeyeCalibrateMath(unittest.TestCase):
         self.assertAlmostEqual(float(ident[1, 3]), 0.0, places=6)
         self.assertAlmostEqual(float(ident[2, 3]), 0.0, places=6)
 
+    def test_estimate_tag_in_base_no_shadow_bug(self):
+        """estimate_tag_in_base should handle multiple samples without shape errors."""
+        r_be = handeye_calibrate.euler_xyz_to_rot(0.0, 0.0, 0.0)
+        t_be = np.array([0.0, 0.0, 0.0])
+        r_end_cam = handeye_calibrate.euler_xyz_to_rot(0.0, 0.0, 0.0)
+        t_end_cam = np.array([0.0, 0.0, 0.0])
+
+        r_t2c = handeye_calibrate.euler_xyz_to_rot(0.0, 0.0, 0.0)
+        t_t2c = np.array([0.0, 0.0, 0.0])
+
+        r_base_tag, t_base_tag = handeye_calibrate.estimate_tag_in_base(
+            [r_be, r_be],
+            [t_be, t_be],
+            r_end_cam,
+            t_end_cam,
+            [r_t2c, r_t2c],
+            [t_t2c, t_t2c],
+        )
+
+        self.assertEqual(r_base_tag.shape, (3, 3))
+        self.assertEqual(t_base_tag.shape, (3,))
+
 
 if __name__ == "__main__":
     unittest.main()

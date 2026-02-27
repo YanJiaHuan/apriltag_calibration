@@ -471,8 +471,8 @@ def estimate_tag_in_base(
     t_base_end_list: List[np.ndarray],
     r_end_cam: np.ndarray,
     t_end_cam: np.ndarray,
-    r_cam_tag_list: List[np.ndarray],
-    t_cam_tag_list: List[np.ndarray],
+    r_target2cam_list: List[np.ndarray],
+    t_target2cam_list: List[np.ndarray],
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Estimate fixed tag pose in base by averaging per-sample estimates.
@@ -482,26 +482,29 @@ def estimate_tag_in_base(
         t_base_end_list (list[np.ndarray]): Base to end translations.
         r_end_cam (np.ndarray): End to camera rotation.
         t_end_cam (np.ndarray): End to camera translation.
-        r_cam_tag_list (list[np.ndarray]): Camera to tag rotations.
-        t_cam_tag_list (list[np.ndarray]): Camera to tag translations.
+        r_target2cam_list (list[np.ndarray]): Target to camera rotations.
+        t_target2cam_list (list[np.ndarray]): Target to camera translations.
 
     Returns:
         tuple[np.ndarray, np.ndarray]: (R_base_tag, t_base_tag).
     """
     rotations = []
     translations = []
-    for r_be, t_be, r_ct, t_ct in zip(
-        r_base_end_list, t_base_end_list, r_cam_tag_list, t_cam_tag_list
+
+    t_ec = np.asarray(t_end_cam, dtype=float).reshape(3, 1)
+    t_end_cam_mat = make_transform(r_end_cam, t_ec)
+
+    for r_be, t_be, r_t2c, t_t2c in zip(
+        r_base_end_list, t_base_end_list, r_target2cam_list, t_target2cam_list
     ):
-        t_be = t_be.reshape(3, 1)
-        t_ec = t_end_cam.reshape(3, 1)
-        t_ct = t_ct.reshape(3, 1)
+        t_be = np.asarray(t_be, dtype=float).reshape(3, 1)
+        t_t2c = np.asarray(t_t2c, dtype=float).reshape(3, 1)
 
         t_base_end = make_transform(r_be, t_be)
-        t_end_cam = make_transform(r_end_cam, t_ec)
-        t_cam_tag = make_transform(r_ct, t_ct)
+        t_target_cam = make_transform(r_t2c, t_t2c)
+        t_cam_target = invert_transform(t_target_cam)
 
-        t_base_tag = t_base_end @ t_end_cam @ t_cam_tag
+        t_base_tag = t_base_end @ t_end_cam_mat @ t_cam_target
         rotations.append(t_base_tag[:3, :3])
         translations.append(t_base_tag[:3, 3])
 
