@@ -17,3 +17,14 @@ They must be treated as ground truth and must not be modified, refactored, or re
     Euler
     You should keep your module's output of Rotation Representation in euler (no matter what the input will be)
 The inputs' type will vary, you should not be confused.
+
+
+3. Coordinate System
+3.1 Opencv
+    X+ -> right
+    Y+ -> down
+    Z+ -> out
+3.2 RealMan Robot
+    X+ -> right
+    Y+ -> out
+    Z+ -> up

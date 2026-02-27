@@ -70,6 +70,32 @@ class TestHandeyeCalibrateMath(unittest.TestCase):
         self.assertEqual(r_base_tag.shape, (3, 3))
         self.assertEqual(t_base_tag.shape, (3,))
 
+    def test_estimate_tag_in_base_chain(self):
+        """estimate_tag_in_base should chain base->end->cam->tag correctly."""
+        r_id = handeye_calibrate.euler_xyz_to_rot(0.0, 0.0, 0.0)
+        t_be = np.array([1.0, 0.0, 0.0])
+        t_ec = np.array([0.0, 1.0, 0.0])
+        t_ct = np.array([0.0, 0.0, 1.0])
+
+        r_base_tag, t_base_tag = handeye_calibrate.estimate_tag_in_base(
+            [r_id],
+            [t_be],
+            r_id,
+            t_ec,
+            [r_id],
+            [t_ct],
+        )
+
+        self.assertAlmostEqual(float(t_base_tag[0]), 1.0, places=6)
+        self.assertAlmostEqual(float(t_base_tag[1]), 1.0, places=6)
+        self.assertAlmostEqual(float(t_base_tag[2]), 1.0, places=6)
+
+    def test_opencv_to_robot_rotation(self):
+        """OpenCV-to-robot rotation should be proper (det=1)."""
+        r_map = handeye_calibrate.opencv_to_robot_rotation()
+        det = float(np.linalg.det(r_map))
+        self.assertAlmostEqual(det, 1.0, places=6)
+
 
 if __name__ == "__main__":
     unittest.main()

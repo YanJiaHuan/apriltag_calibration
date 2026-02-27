@@ -4,14 +4,15 @@ Hand-eye calibration solver for eye-in-hand using robot + AprilTag data.
 
 This module reads a robot-side CSV that contains robot end pose (end|base)
 and AprilTag pose (tag|camera) in the OpenCV camera frame. It filters out
-invalid detections, solves for the camera pose relative to the robot end
-(camera|end), and estimates the fixed tag pose relative to the robot base
-(tag|base).
+invalid detections, converts the OpenCV camera frame to the robot camera
+frame, solves for the camera pose relative to the robot end (camera|end),
+and estimates the fixed tag pose relative to the robot base (tag|base).
 
 Assumptions:
 - Robot pose is end in base (x,y,z in mm, rx,ry,rz in rad; Euler XYZ).
 - Tag pose is tag in camera (x,y,z in mm, rx,ry,rz in rad; Euler XYZ).
-- OpenCV camera frame (x right, y down, z forward) is preserved.
+- OpenCV camera frame (x right, y down, z out) is converted to
+  robot frame (x right, y out, z up).
 - Output translation is mm and rotation is Euler XYZ in rad.
 """
 
@@ -103,6 +104,54 @@ def str_to_bool(value: Any) -> bool:
         return False
     text = str(value).strip().lower()
     return text in {"1", "true", "yes", "y"}
+
+
+def opencv_to_robot_rotation() -> np.ndarray:
+    """
+    Return rotation matrix that maps OpenCV camera axes to robot axes.
+
+    OpenCV: X+ right, Y+ down, Z+ out.
+    Robot:  X+ right, Y+ out, Z+ up.
+
+    Args:
+        None.
+
+    Returns:
+        np.ndarray: 3x3 rotation matrix R such that v_robot = R * v_opencv.
+    """
+    if np is None:
+        raise RuntimeError("numpy is required for opencv_to_robot_rotation")
+
+    return np.array(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, -1.0, 0.0],
+        ],
+        dtype=float,
+    )
+
+
+def convert_opencv_pose_to_robot(
+    r_target2cam: np.ndarray, t_target2cam: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Convert a target->camera pose from OpenCV camera axes to robot camera axes.
+
+    Args:
+        r_target2cam (np.ndarray): 3x3 rotation (camera <- target) in OpenCV axes.
+        t_target2cam (np.ndarray): 3x1 translation in OpenCV axes (mm).
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: Converted (R, t) in robot camera axes.
+    """
+    if np is None:
+        raise RuntimeError("numpy is required for convert_opencv_pose_to_robot")
+
+    r_map = opencv_to_robot_rotation()
+    r_target2cam_robot = r_map @ np.asarray(r_target2cam, dtype=float)
+    t_target2cam_robot = r_map @ np.asarray(t_target2cam, dtype=float).reshape(3)
+    return r_target2cam_robot, t_target2cam_robot
 
 
 def euler_xyz_to_rot(rx: float, ry: float, rz: float) -> np.ndarray:
@@ -390,6 +439,9 @@ def load_samples(
 
         r_target2cam = euler_xyz_to_rot(tag_rx, tag_ry, tag_rz)
         t_target2cam = np.array([tag_tx, tag_ty, tag_tz], dtype=float)
+        r_target2cam, t_target2cam = convert_opencv_pose_to_robot(
+            r_target2cam, t_target2cam
+        )
 
         valid_r_gripper2base.append(r_gripper2base)
         valid_t_gripper2base.append(t_gripper2base)
@@ -482,8 +534,8 @@ def estimate_tag_in_base(
         t_base_end_list (list[np.ndarray]): Base to end translations.
         r_end_cam (np.ndarray): End to camera rotation.
         t_end_cam (np.ndarray): End to camera translation.
-        r_target2cam_list (list[np.ndarray]): Target to camera rotations.
-        t_target2cam_list (list[np.ndarray]): Target to camera translations.
+        r_target2cam_list (list[np.ndarray]): Target to camera rotations (cam <- target).
+        t_target2cam_list (list[np.ndarray]): Target to camera translations (cam <- target).
 
     Returns:
         tuple[np.ndarray, np.ndarray]: (R_base_tag, t_base_tag).
@@ -501,10 +553,9 @@ def estimate_tag_in_base(
         t_t2c = np.asarray(t_t2c, dtype=float).reshape(3, 1)
 
         t_base_end = make_transform(r_be, t_be)
-        t_target_cam = make_transform(r_t2c, t_t2c)
-        t_cam_target = invert_transform(t_target_cam)
+        t_cam_tag = make_transform(r_t2c, t_t2c)
 
-        t_base_tag = t_base_end @ t_end_cam_mat @ t_cam_target
+        t_base_tag = t_base_end @ t_end_cam_mat @ t_cam_tag
         rotations.append(t_base_tag[:3, :3])
         translations.append(t_base_tag[:3, 3])
 
@@ -564,6 +615,8 @@ def main() -> int:
     tag_rx, tag_ry, tag_rz = rot_to_euler_xyz(r_base_tag)
 
     print("valid_samples:", len(r_g2b))
+    r_map = opencv_to_robot_rotation()
+    print("opencv_to_robot_det:", float(np.linalg.det(r_map)))
     print("camera|end (T_end_cam):")
     print("  t_mm:", [float(t_end_cam[0]), float(t_end_cam[1]), float(t_end_cam[2])])
     print("  rpy_rad:", [cam_rx, cam_ry, cam_rz])
