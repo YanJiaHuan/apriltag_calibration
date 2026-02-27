@@ -440,7 +440,7 @@ def main() -> int:
         "lock": asyncio.Lock(),
     }
 
-    async def handler(websocket, _path):
+    async def handler(websocket, _path=None, *_args, **_kwargs):
         """
         Handle websocket requests from the robot side.
 
