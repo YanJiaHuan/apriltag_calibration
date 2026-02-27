@@ -601,11 +601,11 @@ def main() -> int:
         r_g2b, t_g2b, r_t2c, t_t2c, args.method
     )
 
+    # For eye-in-hand, calibrateHandEye returns T_gripper<-cam (camera in gripper frame)
+    # which is exactly what we need - no inversion required
     t_cam2gripper = np.array(t_cam2gripper, dtype=float).reshape(3, 1)
-    t_gripper_cam = invert_transform(make_transform(r_cam2gripper, t_cam2gripper))
-
-    r_end_cam = t_gripper_cam[:3, :3]
-    t_end_cam = t_gripper_cam[:3, 3]
+    r_end_cam = r_cam2gripper
+    t_end_cam = t_cam2gripper.reshape(3)
 
     r_base_tag, t_base_tag = estimate_tag_in_base(
         r_g2b, t_g2b, r_end_cam, t_end_cam, r_t2c, t_t2c
