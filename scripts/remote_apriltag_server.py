@@ -497,22 +497,25 @@ def main() -> int:
         Returns:
             None.
         """
-        async for message in websocket:
-            try:
-                payload = json.loads(message)
-            except json.JSONDecodeError:
-                await websocket.send(json.dumps({"type": "error", "error": "invalid_json"}))
-                continue
+        try:
+            async for message in websocket:
+                try:
+                    payload = json.loads(message)
+                except json.JSONDecodeError:
+                    await websocket.send(json.dumps({"type": "error", "error": "invalid_json"}))
+                    continue
 
-            if payload.get("type") != "capture":
-                await websocket.send(json.dumps({"type": "error", "error": "unsupported_type"}))
-                continue
+                if payload.get("type") != "capture":
+                    await websocket.send(json.dumps({"type": "error", "error": "unsupported_type"}))
+                    continue
 
-            async with context["lock"]:
-                response = await asyncio.to_thread(handle_capture_request, context)
-            if "request_id" in payload:
-                response["request_id"] = payload["request_id"]
-            await websocket.send(json.dumps(response))
+                async with context["lock"]:
+                    response = await asyncio.to_thread(handle_capture_request, context)
+                if "request_id" in payload:
+                    response["request_id"] = payload["request_id"]
+                await websocket.send(json.dumps(response))
+        except websockets.exceptions.ConnectionClosed as exc:
+            print(f"[{now_iso()}] websocket_closed: code={exc.code}, reason={exc.reason}")
 
     async def run_server() -> None:
         """
@@ -524,7 +527,7 @@ def main() -> int:
         Returns:
             None.
         """
-        async with websockets.serve(handler, host, port):
+        async with websockets.serve(handler, host, port, ping_interval=None, ping_timeout=None):
             await asyncio.Future()
 
     try:

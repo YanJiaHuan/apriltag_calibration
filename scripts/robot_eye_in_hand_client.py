@@ -243,14 +243,18 @@ def main() -> int:
         Returns:
             None.
         """
-        async with websockets.connect(server_uri) as ws:
+        async with websockets.connect(server_uri, ping_interval=None, ping_timeout=None) as ws:
             for i in range(args.count):
                 if args.manual:
                     input("Press Enter to capture... ")
 
                 req_id = uuid.uuid4().hex
                 await ws.send(json.dumps({"type": "capture", "request_id": req_id}))
-                resp = json.loads(await ws.recv())
+                try:
+                    resp = json.loads(await ws.recv())
+                except websockets.exceptions.ConnectionClosedError as exc:
+                    print(f"[{now_iso()}] websocket_closed: code={exc.code}, reason={exc.reason}")
+                    break
 
                 if not resp.get("tag_found", False):
                     print(f"[{now_iso()}] tag_not_found: {resp.get('error', '')}")
