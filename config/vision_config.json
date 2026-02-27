@@ -1,8 +1,8 @@
 {
   "tag": {
     "id": 0,
-    "size_mm": 120.5,
-    "family": "tag36h11"
+    "size_mm": 31.0,
+    "family": "tagStandard41h12"
   },
   "camera": {
     "frame": "opencv",
