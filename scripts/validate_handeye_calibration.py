@@ -21,16 +21,27 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import math
 import os
 import sys
 import uuid
 from typing import Any, Dict, List, Tuple
 
+_repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
+
 try:
     import numpy as np
 except ImportError:
     np = None
+
+from scripts.handeye_utils import (
+    convert_opencv_pose_to_robot,
+    euler_xyz_to_rot,
+    make_transform,
+    opencv_to_robot_rotation,
+    rot_to_euler_xyz,
+)
 
 
 def load_json(path: str) -> Dict[str, Any]:
@@ -106,134 +117,6 @@ def get_robot_pose_mm(arm: Any) -> List[float]:
         float(pose[4]),
         float(pose[5]),
     ]
-
-
-def opencv_to_robot_rotation() -> np.ndarray:
-    """
-    Return rotation matrix that maps OpenCV camera axes to robot axes.
-
-    OpenCV: X+ right, Y+ down, Z+ out.
-    Robot:  X+ right, Y+ out, Z+ up.
-
-    Args:
-        None.
-
-    Returns:
-        np.ndarray: 3x3 rotation matrix R such that v_robot = R * v_opencv.
-    """
-    if np is None:
-        raise RuntimeError("numpy is required")
-
-    return np.array(
-        [
-            [1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0],
-            [0.0, -1.0, 0.0],
-        ],
-        dtype=float,
-    )
-
-
-def convert_opencv_pose_to_robot(
-    r_target2cam: np.ndarray, t_target2cam: np.ndarray
-) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Convert a target->camera pose from OpenCV camera axes to robot camera axes.
-
-    Args:
-        r_target2cam (np.ndarray): 3x3 rotation (camera <- target) in OpenCV axes.
-        t_target2cam (np.ndarray): 3x1 translation in OpenCV axes (mm).
-
-    Returns:
-        tuple[np.ndarray, np.ndarray]: Converted (R, t) in robot camera axes.
-    """
-    if np is None:
-        raise RuntimeError("numpy is required")
-
-    r_map = opencv_to_robot_rotation()
-    r_target2cam_robot = r_map @ np.asarray(r_target2cam, dtype=float)
-    t_target2cam_robot = r_map @ np.asarray(t_target2cam, dtype=float).reshape(3)
-    return r_target2cam_robot, t_target2cam_robot
-
-
-def euler_xyz_to_rot(rx: float, ry: float, rz: float) -> np.ndarray:
-    """
-    Convert Euler XYZ angles to rotation matrix.
-
-    Args:
-        rx (float): Rotation about X in radians.
-        ry (float): Rotation about Y in radians.
-        rz (float): Rotation about Z in radians.
-
-    Returns:
-        np.ndarray: 3x3 rotation matrix.
-    """
-    if np is None:
-        raise RuntimeError("numpy is required")
-
-    cx, sx = math.cos(rx), math.sin(rx)
-    cy, sy = math.cos(ry), math.sin(ry)
-    cz, sz = math.cos(rz), math.sin(rz)
-
-    rx_m = np.array([[1.0, 0.0, 0.0], [0.0, cx, -sx], [0.0, sx, cx]])
-    ry_m = np.array([[cy, 0.0, sy], [0.0, 1.0, 0.0], [-sy, 0.0, cy]])
-    rz_m = np.array([[cz, -sz, 0.0], [sz, cz, 0.0], [0.0, 0.0, 1.0]])
-
-    return rz_m @ ry_m @ rx_m
-
-
-def rot_to_euler_xyz(r: np.ndarray) -> Tuple[float, float, float]:
-    """
-    Convert rotation matrix to Euler XYZ (roll, pitch, yaw) in radians.
-
-    Args:
-        r (np.ndarray): 3x3 rotation matrix.
-
-    Returns:
-        tuple[float, float, float]: (rx, ry, rz) in radians.
-    """
-    if np is None:
-        raise RuntimeError("numpy is required")
-
-    r = np.asarray(r, dtype=float)
-    r00 = float(r[0, 0])
-    r10 = float(r[1, 0])
-    r20 = float(r[2, 0])
-    r21 = float(r[2, 1])
-    r22 = float(r[2, 2])
-
-    sy = math.sqrt(r00 * r00 + r10 * r10)
-    if sy < 1e-9:
-        rx = math.atan2(-float(r[1, 2]), float(r[1, 1]))
-        ry = math.atan2(-r20, sy)
-        rz = 0.0
-    else:
-        rx = math.atan2(r21, r22)
-        ry = math.atan2(-r20, sy)
-        rz = math.atan2(r10, r00)
-
-    return rx, ry, rz
-
-
-def make_transform(r: np.ndarray, t: np.ndarray) -> np.ndarray:
-    """
-    Create a 4x4 homogeneous transform from R and t.
-
-    Args:
-        r (np.ndarray): 3x3 rotation matrix.
-        t (np.ndarray): 3x1 or 3-element translation vector.
-
-    Returns:
-        np.ndarray: 4x4 transform matrix.
-    """
-    if np is None:
-        raise RuntimeError("numpy is required")
-
-    t = np.asarray(t, dtype=float).reshape(3, 1)
-    tmat = np.eye(4)
-    tmat[:3, :3] = r
-    tmat[:3, 3] = t[:, 0]
-    return tmat
 
 
 def calculate_tag_in_base(
