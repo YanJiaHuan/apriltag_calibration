@@ -106,8 +106,8 @@ class TestEyeToHandCalibrate(unittest.TestCase):
         )
         self.assertEqual(r_cb.shape, (3, 3))
         self.assertEqual(r_te.shape, (3, 3))
-        self.assertIn(t_cb.size, [3, 4])  # (3,) or (3,1)
-        self.assertIn(t_te.size, [3, 4])
+        self.assertEqual(t_cb.size, 3)
+        self.assertEqual(t_te.size, 3)
 
 
 class TestSolveEyeToHandErrors(unittest.TestCase):

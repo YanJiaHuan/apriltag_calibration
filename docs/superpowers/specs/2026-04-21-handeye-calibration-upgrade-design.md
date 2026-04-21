@@ -142,7 +142,7 @@ def solve_eye_in_hand(
 ```python
 def solve_eye_to_hand(
     csv_path: str,
-    method: str = "tsai",
+    method: str = "shah",
     max_reproj_error: float = 2.0,
     min_samples: int = 3,
 ) -> dict:

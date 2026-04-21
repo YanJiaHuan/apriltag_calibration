@@ -294,8 +294,8 @@ def estimate_tag_in_base(
     Estimate fixed tag pose in base by averaging per-sample estimates.
 
     Args:
-        r_base_end_list (list[np.ndarray]): Base to end rotations.
-        t_base_end_list (list[np.ndarray]): Base to end translations.
+        r_base_end_list (list[np.ndarray]): End-effector-in-base rotations (T[end|base]).
+        t_base_end_list (list[np.ndarray]): End-effector-in-base translations (T[end|base]).
         r_end_cam (np.ndarray): End to camera rotation.
         t_end_cam (np.ndarray): End to camera translation.
         r_target2cam_list (list[np.ndarray]): Target to camera rotations (cam <- target).

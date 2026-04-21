@@ -139,6 +139,11 @@ def solve_eye_to_hand(
     for w in warnings:
         print(f"warning: {w}")
 
+    if "numpy_missing" in warnings:
+        raise ValueError("numpy is not available; cannot solve calibration")
+    if "empty_csv" in warnings:
+        raise ValueError(f"csv is empty or has no header: {csv_path}")
+
     if len(r_g2b) < min_samples:
         raise ValueError(f"not enough valid samples: {len(r_g2b)} < {min_samples}")
 
