@@ -170,7 +170,8 @@ def init_realsense(realsense_cfg_path: str):
                 opt_enum = getattr(rs.option, opt_name)
                 if sensor.supports(opt_enum):
                     sensor.set_option(opt_enum, float(opt_value))
-            except Exception:
+            except Exception as exc:
+                print(f"WARNING: ignoring sensor option {opt_name!r}: {exc}")
                 continue
 
     stream = profile.get_stream(rs.stream.color).as_video_stream_profile()
@@ -348,16 +349,15 @@ def main() -> int:
             )
             timestamp = now_iso()
 
-            reproj_error = result.get("reproj_error", None)
-            quality_ok = (
-                result.get("tag_found", False)
-                and reproj_error is not None
-                and float(reproj_error) <= args.max_reproj_error
-            )
-
             if not result.get("tag_found", False):
                 print(f"  tag_not_found: {result.get('error', '')}")
                 continue
+
+            reproj_error = result.get("reproj_error", None)
+            quality_ok = (
+                reproj_error is not None
+                and float(reproj_error) <= args.max_reproj_error
+            )
 
             if not quality_ok:
                 print(
