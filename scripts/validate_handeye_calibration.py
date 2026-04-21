@@ -39,7 +39,6 @@ from scripts.handeye_utils import (
     convert_opencv_pose_to_robot,
     euler_xyz_to_rot,
     make_transform,
-    opencv_to_robot_rotation,
     rot_to_euler_xyz,
 )
 

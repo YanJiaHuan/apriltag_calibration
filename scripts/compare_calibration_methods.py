@@ -47,7 +47,7 @@ def main() -> int:
         None.
 
     Returns:
-        int: Exit code.
+        int: Exit code. Returns 1 if all methods failed.
     """
     args = parse_args()
     methods = ["tsai", "park", "horaud", "andreff", "daniilidis"]
@@ -94,8 +94,21 @@ def main() -> int:
         else:
             print(f"  {r['method']:<12} {'FAILED':>10}")
 
+    print("\nAprilTag|Base Translation [mm]:")
+    print(f"  {'Method':<12} {'X':>10} {'Y':>10} {'Z':>10}")
+    print("  " + "-" * 36)
+    for r in results:
+        if r["success"]:
+            t = r["t_tag2base"]
+            print(f"  {r['method']:<12} {t[0]:>10.2f} {t[1]:>10.2f} {t[2]:>10.2f}")
+        else:
+            print(f"  {r['method']:<12} {'FAILED':>10}")
+
     print("\nRecommendation: choose the method with most consistent translation results.")
     print("Validate using: python3 scripts/validate_handeye_calibration.py ...")
+
+    if not any(r["success"] for r in results):
+        return 1
     return 0
 
 
