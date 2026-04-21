@@ -1,4 +1,3 @@
-# test/test_eye_to_hand_calibrate.py
 #!/usr/bin/env python3
 """
 Unit tests for eye_to_hand_calibrate.
@@ -13,10 +12,17 @@ import unittest
 
 import numpy as np
 
+try:
+    import cv2 as _cv2  # noqa: F401
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+
 from scripts import handeye_utils
 from scripts.eye_to_hand_calibrate import solve_eye_to_hand_raw
 
 
+@unittest.skipUnless(CV2_AVAILABLE, "cv2 not available")
 class TestEyeToHandCalibrate(unittest.TestCase):
     """Tests for eye-to-hand solver using synthetic data."""
 
@@ -102,6 +108,18 @@ class TestEyeToHandCalibrate(unittest.TestCase):
         self.assertEqual(r_te.shape, (3, 3))
         self.assertIn(t_cb.size, [3, 4])  # (3,) or (3,1)
         self.assertIn(t_te.size, [3, 4])
+
+
+class TestSolveEyeToHandErrors(unittest.TestCase):
+    """Tests for solve_eye_to_hand() error paths (no cv2 needed)."""
+
+    def test_missing_csv_raises(self):
+        """solve_eye_to_hand should raise ValueError if CSV path doesn't exist."""
+        from scripts.eye_to_hand_calibrate import solve_eye_to_hand
+
+        with self.assertRaises(ValueError) as ctx:
+            solve_eye_to_hand("/tmp/does_not_exist_12345.csv")
+        self.assertIn("csv not found", str(ctx.exception))
 
 
 if __name__ == "__main__":
