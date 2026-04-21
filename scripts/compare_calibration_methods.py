@@ -1,88 +1,23 @@
 #!/usr/bin/env python3
 """
-Compare different hand-eye calibration methods.
+Compare all eye-in-hand calibration methods on the same dataset.
 
-This script runs calibration with all available methods (tsai, park, horaud,
-andreff, daniilidis) and compares their results.
+Calls solve_eye_in_hand() directly for each method (no subprocess).
+Prints a side-by-side table of camera|end translation and rotation.
 """
 
 from __future__ import annotations
 
 import argparse
-import subprocess
+import os
 import sys
 
+_repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
 
-def run_calibration(csv_path: str, method: str, max_reproj: float, min_samples: int) -> dict:
-    """
-    Run calibration with specified method.
-
-    Args:
-        csv_path (str): Input CSV path.
-        method (str): Calibration method name.
-        max_reproj (float): Max reprojection error.
-        min_samples (int): Minimum samples required.
-
-    Returns:
-        dict: Calibration results or error info.
-    """
-    cmd = [
-        "python3",
-        "scripts/handeye_calibrate.py",
-        "--input-csv",
-        csv_path,
-        "--method",
-        method,
-        "--max-reproj-error",
-        str(max_reproj),
-        "--min-samples",
-        str(min_samples),
-    ]
-
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output = result.stdout
-
-        # Parse output
-        lines = output.strip().split("\n")
-        cam_t = None
-        cam_r = None
-        tag_t = None
-        tag_r = None
-        valid_samples = None
-
-        for line in lines:
-            if "valid_samples:" in line:
-                valid_samples = int(line.split(":")[1].strip())
-            elif "t_mm:" in line and cam_t is None:
-                # First t_mm is camera|end
-                cam_t = line.split("[")[1].split("]")[0]
-            elif "rpy_rad:" in line and cam_r is None:
-                # First rpy_rad is camera|end
-                cam_r = line.split("[")[1].split("]")[0]
-            elif "t_mm:" in line and cam_t is not None and tag_t is None:
-                # Second t_mm is apriltag|base
-                tag_t = line.split("[")[1].split("]")[0]
-            elif "rpy_rad:" in line and cam_r is not None and tag_r is None:
-                # Second rpy_rad is apriltag|base
-                tag_r = line.split("[")[1].split("]")[0]
-
-        return {
-            "success": True,
-            "method": method,
-            "valid_samples": valid_samples,
-            "camera_end_t": cam_t,
-            "camera_end_r": cam_r,
-            "tag_base_t": tag_t,
-            "tag_base_r": tag_r,
-        }
-
-    except subprocess.CalledProcessError as e:
-        return {
-            "success": False,
-            "method": method,
-            "error": e.stderr,
-        }
+from scripts.handeye_calibrate import solve_eye_in_hand
+from scripts.handeye_utils import rot_to_euler_xyz
 
 
 def parse_args() -> argparse.Namespace:
@@ -96,7 +31,7 @@ def parse_args() -> argparse.Namespace:
         argparse.Namespace: Parsed arguments.
     """
     parser = argparse.ArgumentParser(
-        description="Compare different hand-eye calibration methods"
+        description="Compare hand-eye calibration methods"
     )
     parser.add_argument("--input-csv", default="data/robot_eye_in_hand.csv")
     parser.add_argument("--max-reproj-error", type=float, default=2.0)
@@ -115,74 +50,52 @@ def main() -> int:
         int: Exit code.
     """
     args = parse_args()
-
     methods = ["tsai", "park", "horaud", "andreff", "daniilidis"]
 
-    print("=" * 80)
+    print("=" * 70)
     print("Hand-Eye Calibration Method Comparison")
-    print("=" * 80)
+    print("=" * 70)
     print(f"Input CSV: {args.input_csv}")
-    print(f"Max reproj error: {args.max_reproj_error}")
-    print(f"Min samples: {args.min_samples}")
-    print("=" * 80)
+    print(f"Max reproj error: {args.max_reproj_error}  Min samples: {args.min_samples}")
+    print("=" * 70)
 
     results = []
-
     for method in methods:
-        print(f"\n[{method.upper()}] Running calibration...")
-        result = run_calibration(
-            args.input_csv, method, args.max_reproj_error, args.min_samples
-        )
-        results.append(result)
+        try:
+            result = solve_eye_in_hand(
+                args.input_csv,
+                method=method,
+                max_reproj_error=args.max_reproj_error,
+                min_samples=args.min_samples,
+            )
+            results.append({"method": method, "success": True, **result})
+            print(f"  [{method.upper():>10}] OK  ({result['n_samples']} samples)")
+        except Exception as exc:
+            results.append({"method": method, "success": False, "error": str(exc)})
+            print(f"  [{method.upper():>10}] FAILED: {exc}")
 
-        if result["success"]:
-            print(f"  ✓ Success ({result['valid_samples']} samples)")
+    print("\nCamera|End Translation [mm]:")
+    print(f"  {'Method':<12} {'X':>10} {'Y':>10} {'Z':>10}")
+    print("  " + "-" * 36)
+    for r in results:
+        if r["success"]:
+            t = r["t_cam2end"]
+            print(f"  {r['method']:<12} {t[0]:>10.2f} {t[1]:>10.2f} {t[2]:>10.2f}")
         else:
-            print(f"  ✗ Failed")
+            print(f"  {r['method']:<12} {'FAILED':>10}")
 
-    # Print comparison table
-    print("\n" + "=" * 80)
-    print("RESULTS COMPARISON")
-    print("=" * 80)
-
-    print("\nCamera|End (T_end_cam) Translation [mm]:")
-    print(f"{'Method':<12} {'X':>12} {'Y':>12} {'Z':>12}")
-    print("-" * 50)
-    for result in results:
-        if result["success"]:
-            t = result["camera_end_t"]
-            print(f"{result['method']:<12} {t}")
+    print("\nCamera|End Rotation [rad]:")
+    print(f"  {'Method':<12} {'RX':>10} {'RY':>10} {'RZ':>10}")
+    print("  " + "-" * 36)
+    for r in results:
+        if r["success"]:
+            rx, ry, rz = rot_to_euler_xyz(r["r_cam2end"])
+            print(f"  {r['method']:<12} {rx:>10.4f} {ry:>10.4f} {rz:>10.4f}")
         else:
-            print(f"{result['method']:<12} {'FAILED':>12}")
+            print(f"  {r['method']:<12} {'FAILED':>10}")
 
-    print("\nCamera|End (T_end_cam) Rotation [rad]:")
-    print(f"{'Method':<12} {'RX':>12} {'RY':>12} {'RZ':>12}")
-    print("-" * 50)
-    for result in results:
-        if result["success"]:
-            r = result["camera_end_r"]
-            print(f"{result['method']:<12} {r}")
-        else:
-            print(f"{result['method']:<12} {'FAILED':>12}")
-
-    print("\nAprilTag|Base (T_base_tag) Translation [mm]:")
-    print(f"{'Method':<12} {'X':>12} {'Y':>12} {'Z':>12}")
-    print("-" * 50)
-    for result in results:
-        if result["success"]:
-            t = result["tag_base_t"]
-            print(f"{result['method']:<12} {t}")
-        else:
-            print(f"{result['method']:<12} {'FAILED':>12}")
-
-    print("\n" + "=" * 80)
-    print("RECOMMENDATIONS")
-    print("=" * 80)
-    print("1. Choose the method with most consistent camera|end results")
-    print("2. Validate each method using validate_handeye_calibration.py")
-    print("3. If results vary significantly, collect more diverse data")
-    print("=" * 80)
-
+    print("\nRecommendation: choose the method with most consistent translation results.")
+    print("Validate using: python3 scripts/validate_handeye_calibration.py ...")
     return 0
 
 
