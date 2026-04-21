@@ -2,7 +2,7 @@
 """
 Hand-eye calibration solver for eye-in-hand using robot + AprilTag data.
 
-This module reads a robot-side CSV that contains robot end pose (end|base)
+This module reads a robot-side CSV containing robot end pose (end|base)
 and AprilTag pose (tag|camera) in the OpenCV camera frame. It filters out
 invalid detections, converts the OpenCV camera frame to the robot camera
 frame, solves for the camera pose relative to the robot end (camera|end),
@@ -12,7 +12,7 @@ Assumptions:
 - Robot pose is end in base (x,y,z in mm, rx,ry,rz in rad; Euler XYZ).
 - Tag pose is tag in camera (x,y,z in mm, rx,ry,rz in rad; Euler XYZ).
 - OpenCV camera frame (x right, y down, z out) is converted to
-  robot frame (x right, y out, z up).
+  robot frame (x right, y out, z up) before solving.
 - Output translation is mm and rotation is Euler XYZ in rad.
 """
 
@@ -20,15 +20,30 @@ from __future__ import annotations
 
 import argparse
 import csv
-import math
 import os
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
+_repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
+
 try:
     import numpy as np
-except Exception:  # pragma: no cover - handled by runtime check
+except Exception:  # pragma: no cover
     np = None
+
+from scripts.handeye_utils import (
+    average_rotations,
+    convert_opencv_pose_to_robot,
+    euler_xyz_to_rot,
+    invert_transform,
+    make_transform,
+    opencv_to_robot_rotation,
+    quat_to_rot,
+    rot_to_euler_xyz,
+    rot_to_quat,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -104,257 +119,6 @@ def str_to_bool(value: Any) -> bool:
         return False
     text = str(value).strip().lower()
     return text in {"1", "true", "yes", "y"}
-
-
-def opencv_to_robot_rotation() -> np.ndarray:
-    """
-    Return rotation matrix that maps OpenCV camera axes to robot axes.
-
-    OpenCV: X+ right, Y+ down, Z+ out.
-    Robot:  X+ right, Y+ out, Z+ up.
-
-    Args:
-        None.
-
-    Returns:
-        np.ndarray: 3x3 rotation matrix R such that v_robot = R * v_opencv.
-    """
-    if np is None:
-        raise RuntimeError("numpy is required for opencv_to_robot_rotation")
-
-    return np.array(
-        [
-            [1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0],
-            [0.0, -1.0, 0.0],
-        ],
-        dtype=float,
-    )
-
-
-def convert_opencv_pose_to_robot(
-    r_target2cam: np.ndarray, t_target2cam: np.ndarray
-) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Convert a target->camera pose from OpenCV camera axes to robot camera axes.
-
-    Args:
-        r_target2cam (np.ndarray): 3x3 rotation (camera <- target) in OpenCV axes.
-        t_target2cam (np.ndarray): 3x1 translation in OpenCV axes (mm).
-
-    Returns:
-        tuple[np.ndarray, np.ndarray]: Converted (R, t) in robot camera axes.
-    """
-    if np is None:
-        raise RuntimeError("numpy is required for convert_opencv_pose_to_robot")
-
-    r_map = opencv_to_robot_rotation()
-    r_target2cam_robot = r_map @ np.asarray(r_target2cam, dtype=float)
-    t_target2cam_robot = r_map @ np.asarray(t_target2cam, dtype=float).reshape(3)
-    return r_target2cam_robot, t_target2cam_robot
-
-
-def euler_xyz_to_rot(rx: float, ry: float, rz: float) -> np.ndarray:
-    """
-    Convert Euler XYZ angles to rotation matrix.
-
-    Args:
-        rx (float): Rotation about X in radians.
-        ry (float): Rotation about Y in radians.
-        rz (float): Rotation about Z in radians.
-
-    Returns:
-        np.ndarray: 3x3 rotation matrix.
-    """
-    if np is None:
-        raise RuntimeError("numpy is required for euler_xyz_to_rot")
-
-    cx, sx = math.cos(rx), math.sin(rx)
-    cy, sy = math.cos(ry), math.sin(ry)
-    cz, sz = math.cos(rz), math.sin(rz)
-
-    rx_m = np.array([[1.0, 0.0, 0.0], [0.0, cx, -sx], [0.0, sx, cx]])
-    ry_m = np.array([[cy, 0.0, sy], [0.0, 1.0, 0.0], [-sy, 0.0, cy]])
-    rz_m = np.array([[cz, -sz, 0.0], [sz, cz, 0.0], [0.0, 0.0, 1.0]])
-
-    return rz_m @ ry_m @ rx_m
-
-
-def rot_to_euler_xyz(r: np.ndarray) -> Tuple[float, float, float]:
-    """
-    Convert rotation matrix to Euler XYZ (roll, pitch, yaw) in radians.
-
-    Args:
-        r (np.ndarray): 3x3 rotation matrix.
-
-    Returns:
-        tuple[float, float, float]: (rx, ry, rz) in radians.
-    """
-    if np is None:
-        raise RuntimeError("numpy is required for rot_to_euler_xyz")
-
-    r = np.asarray(r, dtype=float)
-    r00 = float(r[0, 0])
-    r10 = float(r[1, 0])
-    r20 = float(r[2, 0])
-    r21 = float(r[2, 1])
-    r22 = float(r[2, 2])
-
-    sy = math.sqrt(r00 * r00 + r10 * r10)
-    if sy < 1e-9:
-        rx = math.atan2(-float(r[1, 2]), float(r[1, 1]))
-        ry = math.atan2(-r20, sy)
-        rz = 0.0
-    else:
-        rx = math.atan2(r21, r22)
-        ry = math.atan2(-r20, sy)
-        rz = math.atan2(r10, r00)
-
-    return rx, ry, rz
-
-
-def make_transform(r: np.ndarray, t: np.ndarray) -> np.ndarray:
-    """
-    Create a 4x4 homogeneous transform from R and t.
-
-    Args:
-        r (np.ndarray): 3x3 rotation matrix.
-        t (np.ndarray): 3x1 translation vector.
-
-    Returns:
-        np.ndarray: 4x4 transform matrix.
-    """
-    if np is None:
-        raise RuntimeError("numpy is required for make_transform")
-
-    t = np.asarray(t, dtype=float).reshape(3, 1)
-    tmat = np.eye(4)
-    tmat[:3, :3] = r
-    tmat[:3, 3] = t[:, 0]
-    return tmat
-
-
-def invert_transform(tmat: np.ndarray) -> np.ndarray:
-    """
-    Invert a 4x4 homogeneous transform.
-
-    Args:
-        tmat (np.ndarray): 4x4 transform matrix.
-
-    Returns:
-        np.ndarray: Inverted 4x4 transform.
-    """
-    if np is None:
-        raise RuntimeError("numpy is required for invert_transform")
-
-    tmat = np.asarray(tmat, dtype=float)
-    r = tmat[:3, :3]
-    t = tmat[:3, 3]
-    r_inv = r.T
-    t_inv = -r_inv @ t
-    out = np.eye(4)
-    out[:3, :3] = r_inv
-    out[:3, 3] = t_inv
-    return out
-
-
-def rot_to_quat(r: np.ndarray) -> np.ndarray:
-    """
-    Convert rotation matrix to quaternion (w, x, y, z).
-
-    Args:
-        r (np.ndarray): 3x3 rotation matrix.
-
-    Returns:
-        np.ndarray: Quaternion [w, x, y, z].
-    """
-    if np is None:
-        raise RuntimeError("numpy is required for rot_to_quat")
-
-    r = np.asarray(r, dtype=float)
-    m00, m01, m02 = r[0, 0], r[0, 1], r[0, 2]
-    m10, m11, m12 = r[1, 0], r[1, 1], r[1, 2]
-    m20, m21, m22 = r[2, 0], r[2, 1], r[2, 2]
-
-    tr = m00 + m11 + m22
-    if tr > 0.0:
-        s = math.sqrt(tr + 1.0) * 2.0
-        w = 0.25 * s
-        x = (m21 - m12) / s
-        y = (m02 - m20) / s
-        z = (m10 - m01) / s
-    elif m00 > m11 and m00 > m22:
-        s = math.sqrt(1.0 + m00 - m11 - m22) * 2.0
-        w = (m21 - m12) / s
-        x = 0.25 * s
-        y = (m01 + m10) / s
-        z = (m02 + m20) / s
-    elif m11 > m22:
-        s = math.sqrt(1.0 + m11 - m00 - m22) * 2.0
-        w = (m02 - m20) / s
-        x = (m01 + m10) / s
-        y = 0.25 * s
-        z = (m12 + m21) / s
-    else:
-        s = math.sqrt(1.0 + m22 - m00 - m11) * 2.0
-        w = (m10 - m01) / s
-        x = (m02 + m20) / s
-        y = (m12 + m21) / s
-        z = 0.25 * s
-
-    return np.array([w, x, y, z], dtype=float)
-
-
-def quat_to_rot(q: np.ndarray) -> np.ndarray:
-    """
-    Convert quaternion (w, x, y, z) to rotation matrix.
-
-    Args:
-        q (np.ndarray): Quaternion [w, x, y, z].
-
-    Returns:
-        np.ndarray: 3x3 rotation matrix.
-    """
-    if np is None:
-        raise RuntimeError("numpy is required for quat_to_rot")
-
-    q = np.asarray(q, dtype=float)
-    q = q / np.linalg.norm(q)
-    w, x, y, z = q
-    return np.array(
-        [
-            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
-            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
-            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
-        ],
-        dtype=float,
-    )
-
-
-def average_rotations(rotations: List[np.ndarray]) -> np.ndarray:
-    """
-    Average rotation matrices using quaternion mean.
-
-    Args:
-        rotations (list[np.ndarray]): List of 3x3 rotation matrices.
-
-    Returns:
-        np.ndarray: Average 3x3 rotation matrix.
-    """
-    if np is None:
-        raise RuntimeError("numpy is required for average_rotations")
-
-    if not rotations:
-        raise ValueError("no rotations to average")
-    quats = []
-    ref = rot_to_quat(rotations[0])
-    for r in rotations:
-        q = rot_to_quat(r)
-        if np.dot(q, ref) < 0.0:
-            q = -q
-        quats.append(q)
-    mean_q = np.mean(np.stack(quats, axis=0), axis=0)
-    return quat_to_rot(mean_q)
 
 
 def load_samples(
@@ -562,6 +326,59 @@ def estimate_tag_in_base(
     r_mean = average_rotations(rotations)
     t_mean = np.mean(np.stack(translations, axis=0), axis=0)
     return r_mean, t_mean
+
+
+def solve_eye_in_hand(
+    csv_path: str,
+    method: str = "tsai",
+    max_reproj_error: float = 2.0,
+    min_samples: int = 3,
+) -> dict:
+    """
+    Load CSV data and solve eye-in-hand hand-eye calibration.
+
+    Args:
+        csv_path (str): Path to robot_eye_in_hand.csv.
+        method (str): Calibration method: tsai, park, horaud, andreff, daniilidis.
+        max_reproj_error (float): Max reprojection error filter (pixels).
+        min_samples (int): Minimum valid samples required.
+
+    Returns:
+        dict: {
+            "r_cam2end": np.ndarray (3x3),   camera rotation in end frame
+            "t_cam2end": np.ndarray (3,) mm, camera translation in end frame
+            "r_tag2base": np.ndarray (3x3),  tag rotation in base frame
+            "t_tag2base": np.ndarray (3,) mm,tag translation in base frame
+            "n_samples": int,
+        }
+
+    Raises:
+        ValueError: If CSV not found or not enough valid samples.
+    """
+    if not os.path.exists(csv_path):
+        raise ValueError(f"csv not found: {csv_path}")
+
+    r_g2b, t_g2b, r_t2c, t_t2c, warnings = load_samples(csv_path, max_reproj_error)
+    for w in warnings:
+        print(f"warning: {w}")
+
+    if len(r_g2b) < min_samples:
+        raise ValueError(f"not enough valid samples: {len(r_g2b)} < {min_samples}")
+
+    r_cam2gripper, t_cam2gripper = solve_handeye(r_g2b, t_g2b, r_t2c, t_t2c, method)
+    t_cam2gripper = np.array(t_cam2gripper, dtype=float).reshape(3)
+
+    r_base_tag, t_base_tag = estimate_tag_in_base(
+        r_g2b, t_g2b, r_cam2gripper, t_cam2gripper, r_t2c, t_t2c
+    )
+
+    return {
+        "r_cam2end": np.array(r_cam2gripper),
+        "t_cam2end": t_cam2gripper,
+        "r_tag2base": np.array(r_base_tag),
+        "t_tag2base": np.array(t_base_tag),
+        "n_samples": len(r_g2b),
+    }
 
 
 def main() -> int:
