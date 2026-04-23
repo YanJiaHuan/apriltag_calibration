@@ -1,8 +1,10 @@
 {
+  "serial": "333322061510",
   "quality": {
-    "width": 1280,
-    "height": 720,
-    "fps": 30
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "format": "RGB8"
   },
   "rgb_sensor": {
     "enable_auto_exposure": 0,
@@ -14,5 +16,13 @@
     "gamma": 50,
     "saturation": 50,
     "sharpness": 50
+  },
+  "intrinsics": {
+    "fx": 1370.995361328120,
+    "fy": 1366.372314453120,
+    "cx": 943.620300292969,
+    "cy": 548.584716796875,
+    "distortion_model": "inverse_brown_conrady",
+    "coeffs": [0.0, 0.0, 0.0, 0.0, 0.0]
   }
 }
