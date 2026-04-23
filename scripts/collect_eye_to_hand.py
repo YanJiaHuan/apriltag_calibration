@@ -145,11 +145,14 @@ def init_realsense(realsense_cfg_path: str):
     """
     Initialize RealSense pipeline and return (pipeline, intrinsics).
 
+    If the config file contains a "serial" field, that specific device is
+    selected; otherwise the first available device is used.
+
     Args:
         realsense_cfg_path (str): Path to realsense config JSON.
 
     Returns:
-        tuple: (pipeline, intrinsics dict with fx, fy, cx, cy).
+        tuple: (pipeline, intrinsics dict with fx, fy, cx, cy, dist_coeffs).
     """
     import pyrealsense2 as rs
 
@@ -157,9 +160,13 @@ def init_realsense(realsense_cfg_path: str):
     width = int(cfg["quality"]["width"])
     height = int(cfg["quality"]["height"])
     fps = int(cfg["quality"]["fps"])
+    serial = str(cfg["serial"]) if "serial" in cfg and cfg["serial"] else None
 
     pipeline = rs.pipeline()
     config = rs.config()
+    if serial:
+        config.enable_device(serial)
+        print(f"RealSense: selecting device serial={serial}")
     config.enable_stream(rs.stream.color, width, height, rs.format.bgr8, fps)
     profile = pipeline.start(config)
 
