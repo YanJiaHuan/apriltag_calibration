@@ -179,6 +179,7 @@ def init_realsense(realsense_cfg_path: str):
     intrinsics = {
         "fx": float(intr.fx), "fy": float(intr.fy),
         "cx": float(intr.ppx), "cy": float(intr.ppy),
+        "dist_coeffs": list(intr.coeffs),
     }
     return pipeline, intrinsics
 
@@ -242,27 +243,67 @@ def capture_and_detect(
     if target_det is None:
         return {"tag_found": False, "error": "tag_id_not_found"}
 
-    pose = detector.estimate_tag_pose(
-        target_det,
-        float(tag_size_mm) / 1000.0,
-        intrinsics["fx"], intrinsics["fy"],
-        intrinsics["cx"], intrinsics["cy"],
+    # Build camera matrix and distortion coefficients
+    fx, fy = intrinsics["fx"], intrinsics["fy"]
+    cx, cy = intrinsics["cx"], intrinsics["cy"]
+    camera_matrix = np.array(
+        [[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]], dtype=np.float64
+    )
+    dist_coeffs = np.asarray(
+        intrinsics.get("dist_coeffs", [0.0, 0.0, 0.0, 0.0, 0.0]), dtype=np.float64
     )
 
-    r_mat = np.array(pose["R"])
+    # Extract corners in order [lb, rb, rt, lt] from the apriltag dict key
+    raw_corners = target_det["lb-rb-rt-lt"]
+    corners = np.array(raw_corners, dtype=np.float64).reshape(4, 2)
+
+    # Subpixel corner refinement
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-3)
+    corners_f32 = corners.astype(np.float32).reshape(-1, 1, 2)
+    cv2.cornerSubPix(gray, corners_f32, (5, 5), (-1, -1), criteria)
+    corners = corners_f32.reshape(-1, 2).astype(np.float64)
+
+    # 3-D object points in meters: [lb, rb, rt, lt]
+    half = (float(tag_size_mm) / 1000.0) / 2.0
+    object_points = np.array(
+        [[-half, half, 0.0], [half, half, 0.0], [half, -half, 0.0], [-half, -half, 0.0]],
+        dtype=np.float64,
+    )
+
+    # IPPE_SQUARE pose estimation
+    success, rvec, tvec = cv2.solvePnP(
+        object_points, corners, camera_matrix, dist_coeffs,
+        flags=cv2.SOLVEPNP_IPPE_SQUARE,
+    )
+    if not success:
+        return {"tag_found": False, "error": "solvepnp_failed"}
+
+    # LM refinement
+    try:
+        rvec, tvec = cv2.solvePnPRefineLM(
+            object_points, corners, camera_matrix, dist_coeffs, rvec, tvec
+        )
+    except Exception:
+        pass
+
+    # Reprojection error
+    projected, _ = cv2.projectPoints(object_points, rvec, tvec, camera_matrix, dist_coeffs)
+    diff = corners - projected.reshape(-1, 2)
+    reproj_error = float(np.sqrt(np.mean(np.sum(diff ** 2, axis=1))))
+
+    # Rotation matrix and Euler angles (OpenCV camera frame)
+    r_mat, _ = cv2.Rodrigues(rvec)
     rx, ry, rz = rot_to_euler_xyz(r_mat)
-    t = pose["t"]
+
+    # Translation: solvePnP outputs meters (object_points in meters) → convert to mm
+    t = tvec.reshape(3)
 
     return {
         "tag_found": True,
         "tag_id": int(target_det.get("id", -1)),
         "rpy_rad": [rx, ry, rz],
-        "t_mm": [
-            meters_to_mm(float(t[0][0])),
-            meters_to_mm(float(t[1][0])),
-            meters_to_mm(float(t[2][0])),
-        ],
-        "reproj_error": float(pose.get("error", 0.0)),
+        "t_mm": [meters_to_mm(float(t[0])), meters_to_mm(float(t[1])), meters_to_mm(float(t[2]))],
+        "reproj_error": reproj_error,
         "image": color,
     }
 
