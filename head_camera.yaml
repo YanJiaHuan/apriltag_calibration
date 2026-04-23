@@ -1,0 +1,20 @@
+camera:
+  name: head_camera
+  serial: "333322061510"
+  stream:
+    type: color
+    width: 1920
+    height: 1080
+    fps: 30
+    format: RGB8
+  intrinsics:
+    fx: 1370.995361328120
+    fy: 1366.372314453120
+    cx: 943.620300292969
+    cy: 548.584716796875
+    distortion_model: inverse_brown_conrady
+    coeffs: [0.0, 0.0, 0.0, 0.0, 0.0]
+    camera_matrix:
+      - [1370.995361328120, 0.0, 943.620300292969]
+      - [0.0, 1366.372314453120, 548.584716796875]
+      - [0.0, 0.0, 1.0]
